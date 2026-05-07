@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { io } from "socket.io-client";
-
-const socket = io("http://localhost:5000");
+const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "https://busy-steaks-smell.loca.lt";
+const socket = io(BACKEND_URL);
 
 export default function App() {
   const [messages, setMessages] = useState([]);
@@ -67,7 +67,7 @@ export default function App() {
     formData.append("image", file);
 
     try {
-      const res = await fetch("http://localhost:5000/upload", {
+      const res = await fetch(`${BACKEND_URL}/upload`, {
         method: "POST",
         body: formData
       });

@@ -26,7 +26,8 @@ const io = new Server(server, {
 });
 
 // Connect to MongoDB
-mongoose.connect("mongodb://127.0.0.1:27017/chatapp")
+const mongoURI = process.env.MONGODB_URI || "mongodb://127.0.0.1:27017/chatapp";
+mongoose.connect(mongoURI)
   .then(() => console.log("✅ MongoDB Connected"))
   .catch(err => console.log("MongoDB connection error:", err));
 
@@ -43,7 +44,8 @@ app.post("/upload", upload.single("image"), (req, res) => {
   if (!req.file) {
     return res.status(400).json({ error: "No file uploaded" });
   }
-  res.json({ url: `http://localhost:5000/uploads/${req.file.filename}` });
+  const backendUrl = process.env.BACKEND_URL || `http://localhost:${process.env.PORT || 5000}`;
+  res.json({ url: `${backendUrl}/uploads/${req.file.filename}` });
 });
 
 
