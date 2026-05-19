@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { io } from "socket.io-client";
-const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "https://chatverse-backend-5x7w.onrender.com";
+const BACKEND_URL = "https://chatverse-backend-5x7w.onrender.com";
 const socket = io(BACKEND_URL);
 
 export default function App() {
