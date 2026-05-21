@@ -4,12 +4,36 @@ const { Server } = require("socket.io");
 const mongoose = require("mongoose");
 const cors = require("cors");
 const multer = require("multer");
-const path = require("path");
-const fs = require("fs");
+const crypto = require("crypto");
 
-const User = require("./models/User");
-const Message = require("./models/Message");
-const Post = require("./models/Post");
+// Temporary In-Memory Database to replace MongoDB (since no MONGODB_URI is provided on Render)
+class MockCollection {
+  constructor() { this.data = []; }
+  find(query = {}) {
+    let res = this.data;
+    if (query.isPrivate !== undefined) res = res.filter(d => d.isPrivate === query.isPrivate);
+    return { sort: () => ({ limit: (n) => res.slice().reverse().slice(0, n) }) };
+  }
+  async findOne(query) { return this.data.find(d => d.username === query.username) || null; }
+  async findById(id) { return this.data.find(d => d._id === id) || null; }
+  async create(doc) {
+    const newDoc = { _id: crypto.randomBytes(8).toString('hex'), ...doc, createdAt: new Date() };
+    if (newDoc.likes === undefined) newDoc.likes = [];
+    if (newDoc.comments === undefined) newDoc.comments = [];
+    this.data.push(newDoc);
+    newDoc.save = async () => {}; // mock save
+    return newDoc;
+  }
+  async findOneAndUpdate(query, update, options) {
+    let doc = await this.findOne(query);
+    if (doc) { Object.assign(doc, update); return doc; }
+    return null;
+  }
+}
+
+const User = new MockCollection();
+const Message = new MockCollection();
+const Post = new MockCollection();
 
 const app = express();
 app.set('trust proxy', true);
@@ -25,16 +49,10 @@ app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 const server = http.createServer(app);
 const io = new Server(server, {
-  cors: {
-    origin: "*"
-  }
+  cors: { origin: "*" }
 });
 
-// Connect to MongoDB
-const mongoURI = process.env.MONGODB_URI || "mongodb://127.0.0.1:27017/chatapp";
-mongoose.connect(mongoURI)
-  .then(() => console.log("✅ MongoDB Connected"))
-  .catch(err => console.log("MongoDB connection error:", err));
+console.log("✅ Using Temporary In-Memory Database (No MongoDB required)");
 
 // Set up Multer for image uploads
 const storage = multer.diskStorage({
