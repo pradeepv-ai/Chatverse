@@ -43,6 +43,17 @@ export default function App() {
   const [commentInputs, setCommentInputs] = useState({});
   const [editBio, setEditBio] = useState("");
 
+  const usernameRef = useRef(username);
+  const activeDMRef = useRef(activeDM);
+
+  useEffect(() => {
+    usernameRef.current = username;
+  }, [username]);
+
+  useEffect(() => {
+    activeDMRef.current = activeDM;
+  }, [activeDM]);
+
   // Session Persistence on Load
   useEffect(() => {
     const savedUser = localStorage.getItem("chatverse_username");
@@ -58,12 +69,12 @@ export default function App() {
     
     socket.on("message", (msg) => {
       setMessages((prev) => [...prev, msg]);
-      if (document.hidden && msg.user !== username) playBeep();
+      if (document.hidden && msg.user !== usernameRef.current) playBeep();
     });
 
     socket.on("privateMessage", (msg) => {
       setMessages((prev) => [...prev, { ...msg, isPrivate: true }]);
-      if (document.hidden || activeDM?.id !== msg.fromId) playBeep();
+      if (document.hidden || activeDMRef.current?.id !== msg.fromId) playBeep();
     });
 
     socket.on("onlineUsers", (users) => {
@@ -97,7 +108,7 @@ export default function App() {
       socket.off("updateMoment");
       socket.off("profileData");
     };
-  }, [username, activeDM]);
+  }, []);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
