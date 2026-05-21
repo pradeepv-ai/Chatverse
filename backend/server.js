@@ -12,6 +12,7 @@ const Message = require("./models/Message");
 const Post = require("./models/Post");
 
 const app = express();
+app.set('trust proxy', true);
 app.use(cors());
 app.use(express.json());
 
