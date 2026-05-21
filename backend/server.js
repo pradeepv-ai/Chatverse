@@ -44,7 +44,7 @@ app.post("/upload", upload.single("image"), (req, res) => {
   if (!req.file) {
     return res.status(400).json({ error: "No file uploaded" });
   }
-  const backendUrl = process.env.BACKEND_URL || `http://localhost:${process.env.PORT || 5000}`;
+  const backendUrl = process.env.BACKEND_URL || `${req.protocol}://${req.get('host')}`;
   res.json({ url: `${backendUrl}/uploads/${req.file.filename}` });
 });
 
