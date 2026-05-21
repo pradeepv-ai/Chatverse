@@ -25,7 +25,9 @@ export default function App() {
   const [username, setUsername] = useState("");
   const [joined, setJoined] = useState(false);
   const [onlineUsers, setOnlineUsers] = useState({});
-  const [typingUser, setTypingUser] = useState("");
+  const [globalTyping, setGlobalTyping] = useState("");
+  const [privateTyping, setPrivateTyping] = useState({});
+  const [unreadCounts, setUnreadCounts] = useState({});
   const messagesEndRef = useRef(null);
 
   // New States
@@ -74,16 +76,44 @@ export default function App() {
 
     socket.on("privateMessage", (msg) => {
       setMessages((prev) => [...prev, { ...msg, isPrivate: true }]);
+      if (activeDMRef.current?.id !== msg.fromId) {
+        setUnreadCounts(prev => ({ ...prev, [msg.fromId]: (prev[msg.fromId] || 0) + 1 }));
+      } else {
+        socket.emit("markAsRead", { fromUserId: msg.fromId });
+      }
       if (document.hidden || activeDMRef.current?.id !== msg.fromId) playBeep();
+    });
+
+    socket.on("messagesRead", ({ byUserId }) => {
+      setMessages((prev) => prev.map(m => (m.toUserId === byUserId && m.isPrivate) ? { ...m, isRead: true } : m));
+    });
+
+    socket.on("messageDeleted", (msgId) => {
+      setMessages((prev) => prev.filter(m => m._id !== msgId));
+    });
+
+    socket.on("messageReacted", ({ msgId, reactions }) => {
+      setMessages((prev) => prev.map(m => m._id === msgId ? { ...m, likes: reactions } : m));
     });
 
     socket.on("onlineUsers", (users) => {
       setOnlineUsers(users);
     });
 
-    socket.on("typing", (user) => {
-      setTypingUser(user);
-      setTimeout(() => setTypingUser(""), 3000);
+    socket.on("typing", (data) => {
+      if (data.isPrivate) {
+        setPrivateTyping((prev) => ({ ...prev, [data.fromId]: data.user.username }));
+        setTimeout(() => {
+          setPrivateTyping((prev) => {
+            const next = { ...prev };
+            delete next[data.fromId];
+            return next;
+          });
+        }, 3000);
+      } else {
+        setGlobalTyping(data.user.username);
+        setTimeout(() => setGlobalTyping(""), 3000);
+      }
     });
 
     // Moments
@@ -99,8 +129,12 @@ export default function App() {
 
     return () => {
       socket.off("messageHistory");
+      socket.off("privateMessageHistory");
       socket.off("message");
       socket.off("privateMessage");
+      socket.off("messagesRead");
+      socket.off("messageDeleted");
+      socket.off("messageReacted");
       socket.off("onlineUsers");
       socket.off("typing");
       socket.off("momentsList");
@@ -112,7 +146,18 @@ export default function App() {
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, typingUser, activeTab]);
+  }, [messages, globalTyping, privateTyping, activeTab]);
+
+  useEffect(() => {
+    if (activeDM) {
+      setUnreadCounts(prev => {
+        const next = { ...prev };
+        delete next[activeDM.id];
+        return next;
+      });
+      socket.emit("markAsRead", { fromUserId: activeDM.id });
+    }
+  }, [activeDM]);
 
   const joinChat = () => {
     if (!username.trim()) return;
@@ -129,7 +174,21 @@ export default function App() {
 
   const handleTyping = (e) => {
     setInput(e.target.value);
-    socket.emit("typing", username);
+    if (activeDM) {
+      socket.emit("typing", { toUserId: activeDM.id });
+    } else {
+      socket.emit("typing");
+    }
+  };
+
+  const deleteMessage = (msgId) => {
+    if (window.confirm("Delete this message?")) {
+      socket.emit("deleteMessage", msgId);
+    }
+  };
+
+  const reactMessage = (msgId, emoji) => {
+    socket.emit("reactMessage", { msgId, emoji });
   };
 
   const sendMessage = () => {
@@ -314,9 +373,18 @@ export default function App() {
               <div key={id} onClick={() => id !== socket.id && startDM(id, userObj.username)} className={`flex items-center gap-3 p-2 rounded-xl cursor-pointer transition-colors ${activeDM?.id === id ? 'bg-white/20' : 'hover:bg-white/10'}`}>
                 <div className="relative">
                   <Avatar url={userObj.avatar} name={userObj.username} size="w-8 h-8" />
-                  <span className="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full bg-green-500 border-2 border-transparent"></span>
+                  <div className={`absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full border-2 border-[#121212] ${userObj.status === 'Away' ? 'bg-yellow-400' : userObj.status === 'Do Not Disturb' ? 'bg-red-500' : 'bg-green-500'}`}></div>
                 </div>
-                <span className="font-medium text-sm truncate">{userObj.username} {userObj.username === username ? "(You)" : ""}</span>
+                <div className="flex-1 min-w-0 flex items-center justify-between">
+                  <span className={`font-medium truncate text-sm ${id === socket.id ? 'opacity-50' : ''}`}>
+                    {userObj.username} {id === socket.id && "(You)"}
+                  </span>
+                  {unreadCounts[userObj.id] > 0 && (
+                    <span className="bg-red-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full ml-2 shrink-0">
+                      {unreadCounts[userObj.id]}
+                    </span>
+                  )}
+                </div>
               </div>
             ))}
           </div>
@@ -371,27 +439,61 @@ export default function App() {
                 }
 
                 return (
-                  <div key={index} className={`flex ${isMe ? 'flex-row-reverse' : 'flex-row'} items-end gap-2 animate-fade-in-up`}>
+                  <div key={index} className={`group flex ${isMe ? 'flex-row-reverse' : 'flex-row'} items-end gap-2 animate-fade-in-up relative`}>
                     <Avatar url={msgAvatar} name={msg.user} size="w-8 h-8 mb-1" />
-                    <div className={`flex flex-col ${isMe ? 'items-end' : 'items-start'} max-w-[80%] md:max-w-[70%]`}>
+                    
+                    <div className={`flex flex-col ${isMe ? 'items-end' : 'items-start'} max-w-[80%] md:max-w-[70%] relative`}>
                       <span className="text-[10px] opacity-60 mb-1 px-1 font-medium">{msg.user}</span>
-                      <div className={`p-3.5 rounded-2xl shadow-md ${isMe ? (darkMode ? 'bg-pink-600 rounded-br-sm' : 'bg-purple-600 rounded-br-sm') : (darkMode ? 'bg-gray-800 rounded-bl-sm' : 'bg-white/20 backdrop-blur-md rounded-bl-sm')}`}>
+                      
+                      <div className={`relative p-3.5 rounded-2xl shadow-md ${isMe ? (darkMode ? 'bg-pink-600 rounded-br-sm' : 'bg-purple-600 rounded-br-sm') : (darkMode ? 'bg-gray-800 rounded-bl-sm' : 'bg-white/20 backdrop-blur-md rounded-bl-sm')}`}>
                         {msg.text.startsWith('http') && msg.text.includes('/uploads/') ? (
-                          <img src={msg.text} alt="Shared" className="rounded-xl max-h-60 object-contain mt-1 shadow-sm" />
+                          <div className="relative">
+                            <img src={msg.text} alt="Shared" className="rounded-xl max-h-60 object-contain mt-1 shadow-sm" />
+                            {isMe && msg.isPrivate && (
+                              <span className={`absolute bottom-1 right-2 text-[10px] font-bold ${msg.isRead ? 'text-blue-400' : 'opacity-70 text-white drop-shadow-md'}`}>✓✓</span>
+                            )}
+                          </div>
                         ) : (
-                          <p className="whitespace-pre-wrap leading-relaxed text-sm md:text-base">{msg.text}</p>
+                          <div className="flex flex-col relative min-w-[30px]">
+                            <p className="whitespace-pre-wrap leading-relaxed text-sm md:text-base">{msg.text}</p>
+                            {isMe && msg.isPrivate && (
+                              <span className={`text-[10px] self-end -mb-1 mt-0.5 font-bold ${msg.isRead ? 'text-blue-400' : 'opacity-50'}`}>✓✓</span>
+                            )}
+                          </div>
+                        )}
+
+                        {/* Reactions Display */}
+                        {msg.likes && msg.likes.length > 0 && (
+                          <div className={`absolute ${isMe ? '-bottom-3 right-2' : '-bottom-3 left-2'} flex gap-1 ${darkMode ? 'bg-gray-700' : 'bg-white'} px-1.5 py-0.5 rounded-full shadow-sm text-xs border border-black/10`}>
+                            {[...new Set(msg.likes.map(r => r.emoji))].map(emoji => (
+                              <span key={emoji}>{emoji}</span>
+                            ))}
+                            <span className="text-[10px] ml-0.5 opacity-70 font-bold">{msg.likes.length > 1 ? msg.likes.length : ''}</span>
+                          </div>
                         )}
                       </div>
+
+                      {/* Hover Actions */}
+                      {msg._id && (
+                        <div className={`absolute top-1/2 -translate-y-1/2 ${isMe ? '-left-24' : '-right-24'} opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1 bg-black/50 backdrop-blur-md p-1 rounded-xl shadow-lg z-10`}>
+                          <button onClick={() => reactMessage(msg._id, '👍')} className="p-1.5 hover:bg-white/20 rounded-lg transition-colors text-sm">👍</button>
+                          <button onClick={() => reactMessage(msg._id, '❤️')} className="p-1.5 hover:bg-white/20 rounded-lg transition-colors text-sm">❤️</button>
+                          {isMe && (
+                            <button onClick={() => deleteMessage(msg._id)} className="p-1.5 hover:bg-white/20 rounded-lg transition-colors text-sm" title="Delete message">🗑️</button>
+                          )}
+                        </div>
+                      )}
                     </div>
                   </div>
                 );
               })}
               
-              {typingUser && typingUser !== username && !activeDM && (
+              {/* Typing Indicator */}
+              {((!activeDM && globalTyping && globalTyping !== username) || (activeDM && privateTyping[activeDM.id])) && (
                  <div className="flex items-end gap-2 opacity-70">
-                   <Avatar name={typingUser} size="w-6 h-6 mb-1" />
+                   <Avatar name={activeDM ? privateTyping[activeDM.id] : globalTyping} size="w-6 h-6 mb-1" />
                    <div className={`${panelBg} backdrop-blur-md p-3 rounded-2xl rounded-bl-sm text-xs italic shadow-sm`}>
-                     {typingUser} is typing...
+                     {activeDM ? privateTyping[activeDM.id] : globalTyping} is typing...
                    </div>
                  </div>
               )}
@@ -459,8 +561,8 @@ export default function App() {
                     <div className="flex-1 min-w-0">
                       <h3 className="font-bold text-lg truncate">{userObj.username}</h3>
                       <div className="flex items-center gap-1.5 mt-1">
-                        <div className="w-2 h-2 rounded-full bg-green-400 animate-pulse"></div>
-                        <span className="text-xs opacity-70">Online</span>
+                        <div className={`w-2 h-2 rounded-full ${userObj.status === 'Away' ? 'bg-yellow-400' : userObj.status === 'Do Not Disturb' ? 'bg-red-500' : 'bg-green-400'} ${userObj.status === 'Online' ? 'animate-pulse' : ''}`}></div>
+                        <span className="text-xs opacity-70">{userObj.status || 'Online'}</span>
                       </div>
                     </div>
                   </div>
@@ -585,6 +687,19 @@ export default function App() {
                 <p className="opacity-60 text-sm mb-8">Joined recently</p>
 
                 <div className="w-full space-y-5">
+                  <div>
+                    <label className="block text-sm font-bold opacity-70 mb-2 uppercase tracking-wider">Status</label>
+                    <select 
+                      className={`w-full p-4 rounded-2xl ${darkMode ? 'bg-gray-700' : 'bg-white/5'} focus:bg-white/10 outline-none transition-all border border-white/10 mb-5 appearance-none cursor-pointer font-medium`}
+                      value={onlineUsers[socket.id]?.status || "Online"}
+                      onChange={(e) => socket.emit("updateStatus", e.target.value)}
+                    >
+                      <option value="Online">🟢 Online</option>
+                      <option value="Away">🌙 Away</option>
+                      <option value="Do Not Disturb">🔴 Do Not Disturb</option>
+                    </select>
+                  </div>
+                  
                   <div>
                     <label className="block text-sm font-bold opacity-70 mb-2 uppercase tracking-wider">About Me (Bio)</label>
                     <textarea 

@@ -37,6 +37,21 @@ class MockCollection {
     if (doc) { Object.assign(doc, update); return doc; }
     return null;
   }
+  async deleteOne(query) {
+    const idx = this.data.findIndex(d => Object.keys(query).every(k => d[k] === query[k]));
+    if (idx !== -1) { this.data.splice(idx, 1); return { deletedCount: 1 }; }
+    return { deletedCount: 0 };
+  }
+  async updateMany(query, update) {
+    let count = 0;
+    this.data.forEach(d => {
+      if (Object.keys(query).every(k => d[k] === query[k])) {
+        if (update.$set) Object.assign(d, update.$set);
+        count++;
+      }
+    });
+    return { modifiedCount: count };
+  }
 }
 
 const User = new MockCollection();
@@ -105,7 +120,7 @@ io.on("connection", async (socket) => {
         userDoc = await User.create({ username, bio: "", avatar: "" });
       }
       
-      users[socket.id] = { id: userDoc._id, username: userDoc.username, avatar: userDoc.avatar };
+      users[socket.id] = { id: userDoc._id, username: userDoc.username, avatar: userDoc.avatar, status: "Online" };
       
       // Send user profile back
       socket.emit("profileData", userDoc);
@@ -122,6 +137,7 @@ io.on("connection", async (socket) => {
       }
       
       // Broadcast online users
+      // Broadcast online users
       io.emit("onlineUsers", users);
       
       // Announce join
@@ -131,6 +147,13 @@ io.on("connection", async (socket) => {
       });
     } catch(err) {
       console.error("Join error", err);
+    }
+  });
+
+  socket.on("updateStatus", (status) => {
+    if (users[socket.id]) {
+      users[socket.id].status = status;
+      io.emit("onlineUsers", users);
     }
   });
 
@@ -157,7 +180,8 @@ io.on("connection", async (socket) => {
       text: message,
       toUserId: toUserId,
       fromId: users[socket.id].id,
-      isPrivate: true
+      isPrivate: true,
+      isRead: false
     };
     
     try {
@@ -171,9 +195,70 @@ io.on("connection", async (socket) => {
     } catch(err) { console.error(err); }
   });
 
+  socket.on("deleteMessage", async (msgId) => {
+    if (!users[socket.id]) return;
+    try {
+      const msg = await Message.findById(msgId);
+      if (msg && msg.user === users[socket.id].username) {
+        await Message.deleteOne({ _id: msgId });
+        io.emit("messageDeleted", msgId);
+      }
+    } catch(err) { console.error(err); }
+  });
+
+  socket.on("reactMessage", async ({ msgId, emoji }) => {
+    if (!users[socket.id]) return;
+    try {
+      const msg = await Message.findById(msgId);
+      if (msg) {
+        // Toggle reaction
+        const myUserId = users[socket.id].id;
+        let reactions = msg.likes || [];
+        const existingIdx = reactions.findIndex(r => r.userId === myUserId);
+        
+        if (existingIdx !== -1) {
+          if (reactions[existingIdx].emoji === emoji) {
+            reactions.splice(existingIdx, 1); // Remove if same emoji
+          } else {
+            reactions[existingIdx].emoji = emoji; // Change emoji
+          }
+        } else {
+          reactions.push({ userId: myUserId, emoji });
+        }
+        
+        await Message.findOneAndUpdate({ _id: msgId }, { likes: reactions });
+        io.emit("messageReacted", { msgId, reactions });
+      }
+    } catch(err) { console.error(err); }
+  });
+
+  socket.on("markAsRead", async ({ fromUserId }) => {
+    if (!users[socket.id]) return;
+    try {
+      const myId = users[socket.id].id;
+      await Message.updateMany(
+        { fromId: fromUserId, toUserId: myId, isPrivate: true },
+        { $set: { isRead: true } }
+      );
+      
+      const targetSocketEntry = Object.entries(users).find(([sid, u]) => u.id === fromUserId);
+      if (targetSocketEntry) {
+        io.to(targetSocketEntry[0]).emit("messagesRead", { byUserId: myId });
+      }
+    } catch(err) { console.error(err); }
+  });
+
   // Typing Indicator
-  socket.on("typing", () => {
-    socket.broadcast.emit("typing", users[socket.id]);
+  socket.on("typing", (data) => {
+    if(!users[socket.id]) return;
+    if (data && data.toUserId) {
+      const targetSocketEntry = Object.entries(users).find(([sid, u]) => u.id === data.toUserId);
+      if (targetSocketEntry) {
+        io.to(targetSocketEntry[0]).emit("typing", { user: users[socket.id], isPrivate: true, fromId: users[socket.id].id });
+      }
+    } else {
+      socket.broadcast.emit("typing", { user: users[socket.id], isPrivate: false });
+    }
   });
 
   // Share Moment
