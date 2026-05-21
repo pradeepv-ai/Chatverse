@@ -134,7 +134,7 @@ export default function App() {
           <p className="mb-6 opacity-80">Connect, share, and make friends.</p>
           <input
             className="w-full p-3 rounded-xl text-black mb-4 focus:outline-none focus:ring-2 focus:ring-purple-400"
-            placeholder="Enter your beautiful name..."
+            placeholder="Enter your name..."
             value={username}
             onChange={(e) => setUsername(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && joinChat()}
