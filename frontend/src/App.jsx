@@ -43,6 +43,16 @@ export default function App() {
   const [commentInputs, setCommentInputs] = useState({});
   const [editBio, setEditBio] = useState("");
 
+  // Session Persistence on Load
+  useEffect(() => {
+    const savedUser = localStorage.getItem("chatverse_username");
+    if (savedUser) {
+      setUsername(savedUser);
+      socket.emit("join", savedUser);
+      setJoined(true);
+    }
+  }, []);
+
   useEffect(() => {
     socket.on("messageHistory", (msgs) => setMessages(msgs));
     
@@ -95,8 +105,15 @@ export default function App() {
 
   const joinChat = () => {
     if (!username.trim()) return;
-    socket.emit("join", username);
+    const nameToJoin = username.trim();
+    localStorage.setItem("chatverse_username", nameToJoin);
+    socket.emit("join", nameToJoin);
     setJoined(true);
+  };
+
+  const logOut = () => {
+    localStorage.removeItem("chatverse_username");
+    window.location.reload();
   };
 
   const handleTyping = (e) => {
@@ -199,16 +216,16 @@ export default function App() {
         </div>
         <div className={`${darkMode ? 'bg-gray-800' : 'bg-white/20'} backdrop-blur-lg p-8 rounded-3xl shadow-xl w-[90%] max-w-sm flex flex-col items-center`}>
           <h1 className="text-4xl font-bold mb-2">ChatterVerse</h1>
-          <p className="mb-6 opacity-80 text-center">Connect, share, and make friends.</p>
+          <p className="mb-6 opacity-80 text-center">Sign in to connect, share, and make friends.</p>
           <input
             className={`w-full p-3 rounded-xl mb-4 focus:outline-none focus:ring-2 focus:ring-purple-400 ${darkMode ? 'bg-gray-700 text-white placeholder-gray-400' : 'bg-white text-black placeholder-gray-500'}`}
-            placeholder="Enter your name..."
+            placeholder="Username..."
             value={username}
             onChange={(e) => setUsername(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && joinChat()}
           />
           <button onClick={joinChat} className="w-full p-3 bg-pink-600 rounded-xl hover:bg-pink-700 transition-colors font-semibold">
-            Enter the Verse
+            Sign In
           </button>
         </div>
       </div>
@@ -270,6 +287,9 @@ export default function App() {
           </button>
           <button onClick={() => { setActiveTab("moments"); setIsSidebarOpen(false); }} className={`block w-full text-left p-3 rounded-xl transition-colors font-medium ${activeTab === 'moments' ? 'bg-pink-600 text-white shadow-md' : 'bg-white/5 hover:bg-white/10'}`}>
             📸 Moments
+          </button>
+          <button onClick={logOut} className="block w-full text-left p-3 rounded-xl transition-colors font-medium bg-red-500/20 text-red-500 hover:bg-red-500/30 mt-6 border border-red-500/20">
+            🚪 Log Out
           </button>
         </div>
 
@@ -564,6 +584,9 @@ export default function App() {
                   
                   <button onClick={saveProfile} className="w-full py-4 bg-gradient-to-r from-pink-500 to-purple-600 rounded-2xl font-bold shadow-lg hover:shadow-pink-500/25 hover:scale-[1.01] transition-all">
                     Save Profile
+                  </button>
+                  <button onClick={logOut} className="w-full py-4 bg-red-500/10 text-red-500 rounded-2xl font-bold shadow-md hover:bg-red-500/20 transition-all border border-red-500/20 mt-4">
+                    Log Out
                   </button>
                 </div>
               </div>
