@@ -7,6 +7,10 @@ const multer = require("multer");
 const path = require("path");
 const fs = require("fs");
 
+const User = require("./models/User");
+const Message = require("./models/Message");
+const Post = require("./models/Post");
+
 const app = express();
 app.use(cors());
 app.use(express.json());
@@ -52,40 +56,73 @@ app.post("/upload", upload.single("image"), (req, res) => {
 /* ================= SOCKET LOGIC ================= */
 
 let users = {};
-let moments = [];
 
-io.on("connection", (socket) => {
+io.on("connection", async (socket) => {
   console.log("🔥 User connected:", socket.id);
 
-  // Send existing moments to the newly connected user
-  socket.emit("momentsList", moments);
+  try {
+    // Send existing moments and messages to the newly connected user
+    const moments = await Post.find().sort({ createdAt: -1 }).limit(50);
+    const messages = await Message.find({ isPrivate: false }).sort({ createdAt: -1 }).limit(50);
+    socket.emit("momentsList", moments);
+    // Send previous messages (reverse so oldest is first in the UI feed if needed, wait, frontend expects chronological, so we should reverse after fetching)
+    socket.emit("messageHistory", messages.reverse());
+  } catch(err) {
+    console.error("Error fetching initial data", err);
+  }
 
-  socket.on("join", (username) => {
-    users[socket.id] = username;
-    
-    // Broadcast online users
-    io.emit("onlineUsers", users);
-    
-    // Announce join
-    io.emit("message", {
-      user: "System",
-      text: `${username} joined the chat 🎉`
-    });
+  socket.on("join", async (username) => {
+    try {
+      let userDoc = await User.findOne({ username });
+      if (!userDoc) {
+        userDoc = await User.create({ username, bio: "", avatar: "" });
+      }
+      
+      users[socket.id] = { id: userDoc._id, username: userDoc.username, avatar: userDoc.avatar };
+      
+      // Send user profile back
+      socket.emit("profileData", userDoc);
+      
+      // Broadcast online users
+      io.emit("onlineUsers", users);
+      
+      // Announce join
+      io.emit("message", {
+        user: "System",
+        text: `${username} joined the chat 🎉`
+      });
+    } catch(err) {
+      console.error("Join error", err);
+    }
   });
 
-  socket.on("sendMessage", (message) => {
-    io.emit("message", {
-      user: users[socket.id],
-      text: message
-    });
+  socket.on("sendMessage", async (message) => {
+    if(!users[socket.id]) return;
+    const msgData = {
+      user: users[socket.id].username,
+      text: message,
+      room: "Global",
+      isPrivate: false
+    };
+    try {
+      const savedMsg = await Message.create(msgData);
+      io.emit("message", savedMsg);
+    } catch(err) { console.error(err); }
   });
 
   // Private Messaging
-  socket.on("privateMessage", ({ toUserId, message }) => {
-    socket.to(toUserId).emit("privateMessage", {
-      user: users[socket.id],
-      text: message
-    });
+  socket.on("privateMessage", async ({ toUserId, message }) => {
+    if(!users[socket.id]) return;
+    const msgData = {
+      user: users[socket.id].username,
+      text: message,
+      toUserId,
+      isPrivate: true
+    };
+    try {
+      const savedMsg = await Message.create(msgData);
+      socket.to(toUserId).emit("privateMessage", savedMsg);
+    } catch(err) { console.error(err); }
   });
 
   // Typing Indicator
@@ -94,25 +131,77 @@ io.on("connection", (socket) => {
   });
 
   // Share Moment
-  socket.on("shareMoment", ({ image, caption }) => {
-    const newMoment = {
-      id: Date.now().toString() + Math.random().toString(36).substr(2, 5),
-      user: users[socket.id] || "Anonymous",
-      image,
-      caption,
-      createdAt: new Date().toISOString()
-    };
-    moments.unshift(newMoment);
-    if (moments.length > 50) moments.pop(); // Keep memory usage bounded
-    
-    io.emit("newMoment", newMoment);
+  socket.on("shareMoment", async ({ image, caption }) => {
+    if(!users[socket.id]) return;
+    try {
+      const newMoment = await Post.create({
+        user: users[socket.id].username,
+        userAvatar: users[socket.id].avatar,
+        image,
+        caption
+      });
+      io.emit("newMoment", newMoment);
+    } catch(err) { console.error(err); }
+  });
+
+  // Like Moment
+  socket.on("likeMoment", async (momentId) => {
+    if(!users[socket.id]) return;
+    try {
+      const post = await Post.findById(momentId);
+      if (post) {
+        const username = users[socket.id].username;
+        if (!post.likes.includes(username)) {
+          post.likes.push(username);
+        } else {
+          post.likes = post.likes.filter(u => u !== username);
+        }
+        await post.save();
+        io.emit("updateMoment", post);
+      }
+    } catch(err) { console.error(err); }
+  });
+
+  // Comment Moment
+  socket.on("commentMoment", async ({ momentId, text }) => {
+    if(!users[socket.id]) return;
+    try {
+      const post = await Post.findById(momentId);
+      if (post) {
+        post.comments.push({
+          user: users[socket.id].username,
+          userAvatar: users[socket.id].avatar,
+          text
+        });
+        await post.save();
+        io.emit("updateMoment", post);
+      }
+    } catch(err) { console.error(err); }
+  });
+
+  // Update Profile
+  socket.on("updateProfile", async ({ bio, avatar }) => {
+    if(!users[socket.id]) return;
+    try {
+      const userDoc = await User.findOneAndUpdate(
+        { username: users[socket.id].username },
+        { bio, avatar },
+        { new: true }
+      );
+      if (userDoc) {
+        users[socket.id].avatar = avatar;
+        socket.emit("profileData", userDoc);
+        io.emit("onlineUsers", users); // Refresh avatars for everyone
+      }
+    } catch(err) { console.error(err); }
   });
 
   socket.on("disconnect", () => {
     if (users[socket.id]) {
+      const username = users[socket.id].username;
       io.emit("message", {
         user: "System",
-        text: `${users[socket.id]} left ❌`
+        text: `${username} left ❌`
       });
       delete users[socket.id];
       // Update online users list
