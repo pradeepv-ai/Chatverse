@@ -52,9 +52,13 @@ app.post("/upload", upload.single("image"), (req, res) => {
 /* ================= SOCKET LOGIC ================= */
 
 let users = {};
+let moments = [];
 
 io.on("connection", (socket) => {
   console.log("🔥 User connected:", socket.id);
+
+  // Send existing moments to the newly connected user
+  socket.emit("momentsList", moments);
 
   socket.on("join", (username) => {
     users[socket.id] = username;
@@ -87,6 +91,21 @@ io.on("connection", (socket) => {
   // Typing Indicator
   socket.on("typing", () => {
     socket.broadcast.emit("typing", users[socket.id]);
+  });
+
+  // Share Moment
+  socket.on("shareMoment", ({ image, caption }) => {
+    const newMoment = {
+      id: Date.now().toString() + Math.random().toString(36).substr(2, 5),
+      user: users[socket.id] || "Anonymous",
+      image,
+      caption,
+      createdAt: new Date().toISOString()
+    };
+    moments.unshift(newMoment);
+    if (moments.length > 50) moments.pop(); // Keep memory usage bounded
+    
+    io.emit("newMoment", newMoment);
   });
 
   socket.on("disconnect", () => {
