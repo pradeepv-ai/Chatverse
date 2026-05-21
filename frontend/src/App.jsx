@@ -370,16 +370,16 @@ export default function App() {
                   <EmojiPicker theme={darkMode ? "dark" : "light"} onEmojiClick={onEmojiClick} />
                 </div>
               )}
-              <div className="flex gap-2 items-center">
-                <label className={`p-3.5 ${panelBg} backdrop-blur-lg rounded-2xl hover:bg-white/20 transition-colors cursor-pointer shadow-md shrink-0`}>
-                  <span className="text-xl">📸</span>
+              <div className="flex gap-1.5 sm:gap-2 items-center">
+                <label className={`p-2.5 sm:p-3.5 ${panelBg} backdrop-blur-lg rounded-xl sm:rounded-2xl hover:bg-white/20 transition-colors cursor-pointer shadow-md shrink-0`}>
+                  <span className="text-lg sm:text-xl">📸</span>
                   <input type="file" className="hidden" accept="image/*" onChange={(e) => uploadImage(e, "chat")} />
                 </label>
-                <button onClick={() => setShowEmojiPicker(!showEmojiPicker)} className={`p-3.5 ${panelBg} backdrop-blur-lg rounded-2xl hover:bg-white/20 transition-colors cursor-pointer shadow-md shrink-0`}>
-                  <span className="text-xl">😀</span>
+                <button onClick={() => setShowEmojiPicker(!showEmojiPicker)} className={`p-2.5 sm:p-3.5 ${panelBg} backdrop-blur-lg rounded-xl sm:rounded-2xl hover:bg-white/20 transition-colors cursor-pointer shadow-md shrink-0`}>
+                  <span className="text-lg sm:text-xl">😀</span>
                 </button>
                 <input
-                  className={`flex-1 p-4 rounded-2xl ${darkMode ? 'bg-gray-800 focus:bg-gray-700 placeholder-gray-400' : 'bg-white/20 focus:bg-white/30 placeholder-white/70'} backdrop-blur-lg transition-all border border-white/10 shadow-inner outline-none`}
+                  className={`flex-1 p-3 sm:p-4 rounded-xl sm:rounded-2xl text-sm sm:text-base ${darkMode ? 'bg-gray-800 focus:bg-gray-700 placeholder-gray-400' : 'bg-white/20 focus:bg-white/30 placeholder-white/70'} backdrop-blur-lg transition-all border border-white/10 shadow-inner outline-none min-w-0`}
                   placeholder={activeDM ? `Message ${activeDM.name}...` : `Message ${activeRoom}...`}
                   value={input}
                   onChange={handleTyping}
@@ -387,10 +387,10 @@ export default function App() {
                 />
                 <button
                   onClick={sendMessage}
-                  className="p-4 px-6 md:px-8 bg-pink-600 rounded-2xl hover:bg-pink-500 transition-colors font-bold shadow-lg flex items-center justify-center shrink-0 group"
+                  className="p-3 px-4 sm:p-4 sm:px-6 md:px-8 bg-pink-600 rounded-xl sm:rounded-2xl hover:bg-pink-500 transition-colors font-bold shadow-lg flex items-center justify-center shrink-0 group"
                 >
                   <span className="hidden md:inline">Send</span>
-                  <svg className="w-5 h-5 md:hidden md:ml-2 group-hover:translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"></path></svg>
+                  <svg className="w-5 h-5 md:hidden group-hover:translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"></path></svg>
                 </button>
               </div>
             </div>
