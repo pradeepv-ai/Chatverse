@@ -249,11 +249,11 @@ export default function App() {
       const myUserObj = Object.values(onlineUsers).find(u => u.username === username);
       const myId = myUserObj ? myUserObj.id : null;
       return msg.isPrivate && (
-        (msg.user === username && msg.to === activeDM.id) || 
-        (msg.fromId === activeDM.id && msg.to === myId)
+        (msg.user === username && msg.toUserId === activeDM.id) || 
+        (msg.fromId === activeDM.id && msg.toUserId === myId)
       );
     } else {
-      return !msg.isPrivate && msg.room === activeRoom; 
+      return !msg.isPrivate && (msg.room === activeRoom || msg.user === "System"); 
     }
   });
 

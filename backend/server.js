@@ -5,6 +5,8 @@ const mongoose = require("mongoose");
 const cors = require("cors");
 const multer = require("multer");
 const crypto = require("crypto");
+const fs = require("fs");
+const path = require("path");
 
 // Temporary In-Memory Database to replace MongoDB (since no MONGODB_URI is provided on Render)
 class MockCollection {
@@ -111,7 +113,7 @@ io.on("connection", async (socket) => {
       // Send private messages for this user
       const privateMessages = await Message.find({
         $or: [
-          { to: userDoc._id.toString() },
+          { toUserId: userDoc._id.toString() },
           { fromId: userDoc._id.toString() }
         ]
       }).sort({ createdAt: -1 }).limit(50);
@@ -147,18 +149,22 @@ io.on("connection", async (socket) => {
   });
 
   // Private Messaging
-  // Private Messaging
-  socket.on("privateMessage", async (msgData) => {
+  socket.on("privateMessage", async ({ toUserId, message }) => {
     if(!users[socket.id]) return;
     
-    msgData.fromId = users[socket.id].id;
-    msgData.isPrivate = true;
+    const msgData = {
+      user: users[socket.id].username,
+      text: message,
+      toUserId: toUserId,
+      fromId: users[socket.id].id,
+      isPrivate: true
+    };
     
     try {
       const savedMsg = await Message.create(msgData);
       
-      // msgData.to is the database ID of the target user
-      const targetSocketEntry = Object.entries(users).find(([sid, u]) => u.id === msgData.to);
+      // toUserId is the database ID of the target user
+      const targetSocketEntry = Object.entries(users).find(([sid, u]) => u.id === toUserId);
       if (targetSocketEntry) {
         io.to(targetSocketEntry[0]).emit("privateMessage", savedMsg);
       }
