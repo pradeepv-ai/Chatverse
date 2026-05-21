@@ -246,11 +246,14 @@ export default function App() {
   // Filter messages for current view (Room or DM)
   const displayMessages = messages.filter(msg => {
     if (activeDM) {
-      // Find socket id of myself
-      const myId = socket.id;
-      return msg.isPrivate && (msg.user === activeDM.name || msg.toUserId === activeDM.id || msg.user === username);
+      const myUserObj = Object.values(onlineUsers).find(u => u.username === username);
+      const myId = myUserObj ? myUserObj.id : null;
+      return msg.isPrivate && (
+        (msg.user === username && msg.to === activeDM.id) || 
+        (msg.fromId === activeDM.id && msg.to === myId)
+      );
     } else {
-      return !msg.isPrivate; 
+      return !msg.isPrivate && msg.room === activeRoom; 
     }
   });
 

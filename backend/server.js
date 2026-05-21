@@ -12,6 +12,12 @@ class MockCollection {
   find(query = {}) {
     let res = this.data;
     if (query.isPrivate !== undefined) res = res.filter(d => d.isPrivate === query.isPrivate);
+    if (query.$or) {
+      res = res.filter(d => query.$or.some(cond => {
+        for (let k in cond) if (d[k] !== cond[k]) return false;
+        return true;
+      }));
+    }
     return { sort: () => ({ limit: (n) => res.slice().reverse().slice(0, n) }) };
   }
   async findOne(query) { return this.data.find(d => d.username === query.username) || null; }
@@ -102,6 +108,17 @@ io.on("connection", async (socket) => {
       // Send user profile back
       socket.emit("profileData", userDoc);
       
+      // Send private messages for this user
+      const privateMessages = await Message.find({
+        $or: [
+          { to: userDoc._id.toString() },
+          { fromId: userDoc._id.toString() }
+        ]
+      }).sort({ createdAt: -1 }).limit(50);
+      if (privateMessages.length > 0) {
+        socket.emit("privateMessageHistory", privateMessages.reverse());
+      }
+      
       // Broadcast online users
       io.emit("onlineUsers", users);
       
@@ -130,17 +147,21 @@ io.on("connection", async (socket) => {
   });
 
   // Private Messaging
-  socket.on("privateMessage", async ({ toUserId, message }) => {
+  // Private Messaging
+  socket.on("privateMessage", async (msgData) => {
     if(!users[socket.id]) return;
-    const msgData = {
-      user: users[socket.id].username,
-      text: message,
-      toUserId,
-      isPrivate: true
-    };
+    
+    msgData.fromId = users[socket.id].id;
+    msgData.isPrivate = true;
+    
     try {
       const savedMsg = await Message.create(msgData);
-      socket.to(toUserId).emit("privateMessage", savedMsg);
+      
+      // msgData.to is the database ID of the target user
+      const targetSocketEntry = Object.entries(users).find(([sid, u]) => u.id === msgData.to);
+      if (targetSocketEntry) {
+        io.to(targetSocketEntry[0]).emit("privateMessage", savedMsg);
+      }
     } catch(err) { console.error(err); }
   });
 
